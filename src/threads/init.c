@@ -72,6 +72,8 @@ static void locate_block_device (enum block_type, const char *name);
 
 int pintos_init (void) NO_RETURN;
 
+static void run_interactive_shell(void);
+
 /* Pintos main entry point. */
 int
 pintos_init (void)
@@ -133,7 +135,7 @@ pintos_init (void)
     /* Run actions specified on kernel command line. */
     run_actions (argv);
   } else {
-    // TODO: no command line passed to kernel. Run interactively 
+    run_interactive_shell();
   }
 
   /* Finish up. */
@@ -431,3 +433,107 @@ locate_block_device (enum block_type role, const char *name)
     }
 }
 #endif
+
+// Code for interactive shell goes here
+static bool backspace (char **pos, char line[]);
+static void readline (char line[], size_t size);
+
+/// @brief Starts a basic interactive shell that can read lines 
+/// and run one keyword commands.
+static void 
+run_interactive_shell(void){
+  int size = 255;
+  char command[size];
+  while(1){
+    printf("cs2043>");
+    readline(command,sizeof(command));
+    if(!strcmp(command,"whoami")){
+      // Display your name alongside your index number
+      printf("Rajiva Pavan Pitiwaduge - 210479L\n");
+    }
+    else if(!strcmp(command, "shutdown")){
+      // Pintos OS will shutdown and exit the qemu emulator
+      // configure the shutdown mode
+      shutdown_configure (SHUTDOWN_POWER_OFF);
+      return;
+    }
+    else if(!strcmp(command, "time")){
+      // Display the number of seconds passed since Unix epoch
+      printf("Number of seconds passed since UNIX epoch = %d\n", rtc_get_time());
+    }
+    else if(!strcmp(command, "ram")){
+      // TODO: Display the amount of RAM available for the OS
+      printf ("RAM available for the OS %'"PRIu32" kB\n",
+          init_ram_pages * PGSIZE / 1024);
+    }
+    else if(!strcmp(command, "thread")){
+      // Display thread statistics
+      thread_print_stats();
+    }
+    else if(!strcmp(command, "priority")){
+      // Display the thread priority of the current thread
+      printf("Current thread priority = %d\n", thread_get_priority());
+    }
+    else if(!strcmp(command, "exit")){
+      // Exit the interactive shell
+      return;
+    }
+    else{
+      printf("invalid\n");
+    }
+  }
+}
+
+/* If *POS is past the beginning of LINE, backs up one character
+   position.  Returns true if successful, false if nothing was
+   done. */
+static bool
+backspace (char **pos, char line[]) 
+{
+  if (*pos > line)
+    {
+      /* Back up cursor, overwrite character, back up
+         again. */
+      printf ("\b \b");
+      (*pos)--;
+      return true;
+    }
+  else
+    return false;
+}
+
+static void
+readline(char line[], size_t size)
+{
+  char *pos = line;
+   for (;;)
+   {
+        char c = input_getc();
+
+        switch (c)
+        {
+        case '\r':
+          *pos = '\0';
+          putchar('\n');
+          return;
+
+        case '\b':
+          backspace(&pos, line);
+          break;
+
+        case ('U' - 'A') + 1: /* Ctrl+U. */
+          while (backspace(&pos, line))
+            continue;
+          break;
+
+        default:
+          /* Add character to line. */
+          if (pos < line + size - 1)
+          {
+            putchar(c);
+            *pos++ = c;
+          }
+          break;
+        }
+   }
+}

@@ -24,6 +24,12 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of processes in THREAD_BLOCKED state */
+static struct list sleep_list;
+
+/* Ticks of the block thread with least ticks */
+static int64_t least_ticks_sleep_thread = INT64_MAX;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -70,6 +76,10 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static void update_least_ticks(int64_t ticks);
+static int64_t get_least_ticks(void);
+
+
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,6 +101,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&sleep_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -200,6 +211,17 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+
+  list_push_back(&thread_current()->child_list, &t->child_elem);
+  // initialize the semaphores for parent and child
+  sema_init(&t->pre_exit_sema, 0);
+  sema_init(&t->post_exit_sema, 0);
+  sema_init(&t->file_load_sema, 0);
+
+  /* Allocate file descriptor table */
+  t -> fd_table = malloc(sizeof(struct file *) * 128);
+  // reserve 0 and 1 for stdin and stdout
+  t -> next_fd = 2;
 
   return tid;
 }
@@ -312,6 +334,95 @@ thread_yield (void)
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+static const 
+bool 
+compare_thread_ticks(const struct list_elem *a, const struct list_elem *b, void *aux){
+  struct thread *thread_a = list_entry(a, struct thread, elem);
+  struct thread *thread_b = list_entry(b, struct thread, elem);
+  return thread_a->wakeup_tick < thread_b->wakeup_tick;
+}
+
+/*
+ * If the current thread is not the idle thread, change the state of the caller thread to BLOCKED.
+ * Store the local tick to wake up the thread.
+ * If the local tick is greater than the global tick, update the global tick to the local tick.
+ * Call the scheduler to select a new thread to run.
+ */
+void
+thread_sleep(int64_t wakeup_ticks)
+{
+  struct thread *cur = thread_current();
+  enum intr_level old_level;
+
+  ASSERT(!intr_context());
+
+  old_level = intr_disable();
+  if (cur != idle_thread) {
+    cur->wakeup_tick = wakeup_ticks;
+    list_insert_ordered(&sleep_list, &cur->elem, (list_less_func *) &compare_thread_ticks, NULL);
+    update_least_ticks(wakeup_ticks);
+    thread_block();
+  }
+
+  intr_set_level (old_level);
+}
+
+int64_t get_least_ticks(void) {
+  return least_ticks_sleep_thread;
+}
+
+void update_least_ticks(int64_t ticks) {
+  if (least_ticks_sleep_thread > ticks) {
+    least_ticks_sleep_thread = ticks;
+  }
+}
+
+/*
+* Adds the given thread to the sleep queue 
+* and wakes up the thread (sets status to READY)
+*/
+void thread_wakeup(struct thread* t) {
+  // remove the thread from the sleep list, disable interrupts to make the list removal atomic
+  enum intr_level old_level = intr_disable();
+  list_remove(&t->elem);
+  intr_set_level(old_level);
+  
+  // wake up the thread
+  thread_unblock(t);
+}
+
+/*
+ * Check the sleep list for any threads that need to be woken up.
+ * If a thread's wake-up tick is less than or equal to the global tick,
+ * move the thread from the sleep list to the ready list.
+ * Update the global tick to the minimum wake-up tick of all threads on the sleep list.
+ */
+void
+wakeup_threads(int64_t ticks)
+{
+  struct list_elem *e;
+  struct thread *t;
+  
+  // No threads to wake if ticks is less than least ticks in sleep thread
+  if(get_least_ticks() > ticks) return;
+
+  while(!list_empty(&sleep_list)) {
+
+    e = list_begin(&sleep_list);
+    t = list_entry(e, struct thread, elem);
+
+    // if not thread to wake up, 
+    // update the least_thread to wake and break, 
+    // as the list is ordered
+    if (ticks < t-> wakeup_tick) {
+      update_least_ticks(t->wakeup_tick);
+      break;
+    }
+
+    thread_wakeup(t);
+  }
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -463,6 +574,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->exit_status = -1;
+
+  // Initialize list for child processes
+  list_init(&t->child_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
