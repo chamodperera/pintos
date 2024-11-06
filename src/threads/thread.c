@@ -177,54 +177,59 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
-  struct thread *t;
-  struct kernel_thread_frame *kf;
-  struct switch_entry_frame *ef;
-  struct switch_threads_frame *sf;
-  tid_t tid;
+    struct thread *t;
+    struct kernel_thread_frame *kf;
+    struct switch_entry_frame *ef;
+    struct switch_threads_frame *sf;
+    tid_t tid;
 
-  ASSERT (function != NULL);
+    ASSERT (function != NULL);
 
-  /* Allocate thread. */
-  t = palloc_get_page (PAL_ZERO);
-  if (t == NULL)
-    return TID_ERROR;
+    /* Allocate thread. */
+    t = palloc_get_page (PAL_ZERO);
+    if (t == NULL)
+        return TID_ERROR;
 
-  /* Initialize thread. */
-  init_thread (t, name, priority);
-  tid = t->tid = allocate_tid ();
+    /* Initialize thread. */
+    init_thread (t, name, priority);
+    tid = t->tid = allocate_tid ();
 
-  /* Stack frame for kernel_thread(). */
-  kf = alloc_frame (t, sizeof *kf);
-  kf->eip = NULL;
-  kf->function = function;
-  kf->aux = aux;
+    /* Allocate file descriptor table */
+    t->fd_table = calloc(128, sizeof(struct file *)); // Allocates memory and sets all entries to NULL
+    if (t->fd_table == NULL) {
+        palloc_free_page(t); // Free allocated memory if fd_table allocation fails
+        return TID_ERROR;
+    }
+    t->next_fd = 2; // Reserve 0 and 1 for stdin and stdout
 
-  /* Stack frame for switch_entry(). */
-  ef = alloc_frame (t, sizeof *ef);
-  ef->eip = (void (*) (void)) kernel_thread;
+    /* Stack frame for kernel_thread(). */
+    kf = alloc_frame (t, sizeof *kf);
+    kf->eip = NULL;
+    kf->function = function;
+    kf->aux = aux;
 
-  /* Stack frame for switch_threads(). */
-  sf = alloc_frame (t, sizeof *sf);
-  sf->eip = switch_entry;
-  sf->ebp = 0;
+    /* Stack frame for switch_entry(). */
+    ef = alloc_frame (t, sizeof *ef);
+    ef->eip = (void (*) (void)) kernel_thread;
 
-  /* Add to run queue. */
-  thread_unblock (t);
+    /* Stack frame for switch_threads(). */
+    sf = alloc_frame (t, sizeof *sf);
+    sf->eip = switch_entry;
+    sf->ebp = 0;
 
-  list_push_back(&thread_current()->child_list, &t->child_elem);
-  // initialize the semaphores for parent and child
-  sema_init(&t->pre_exit_sema, 0);
-  sema_init(&t->post_exit_sema, 0);
-  sema_init(&t->file_load_sema, 0);
+    /* Add to run queue. */
+    thread_unblock (t);
 
-  /* Allocate file descriptor table */
-  t -> fd_table = malloc(sizeof(struct file *) * 128);
-  // reserve 0 and 1 for stdin and stdout
-  t -> next_fd = 2;
+    list_push_back(&thread_current()->child_list, &t->child_elem);
 
-  return tid;
+    // Initialize semaphores for parent-child synchronization
+    sema_init(&t->pre_exit_sema, 0);
+    sema_init(&t->post_exit_sema, 0);
+    sema_init(&t->file_load_sema, 0);
+
+    return tid;
 }
+
 
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().

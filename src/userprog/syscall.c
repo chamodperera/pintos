@@ -23,11 +23,13 @@ void syscall_init(void) {
 }
 
 static void syscall_handler(struct intr_frame *f) {
+    // Validate the stack pointer
     if (!is_valid_user_pointer(f->esp)) {
         exit(-1);
         return;
     }
 
+    // Extract the system call number
     int syscall_num = *(int *)f->esp;
 
     switch (syscall_num) {
@@ -126,9 +128,11 @@ static void syscall_handler(struct intr_frame *f) {
         }
         default:
             printf("Unimplemented system call number: %d\n", syscall_num);
-            thread_exit();
+            exit(-1);
     }
 }
+
+
 
 void halt(void) {
     shutdown_power_off();
@@ -222,6 +226,7 @@ int read(int fd, void *buffer, unsigned size) {
     return bytes_read;
 }
 
+
 int write(int fd, const void *buffer, unsigned size) {
     if (fd == STDOUT_FILENO) {
         putbuf(buffer, size);
@@ -257,14 +262,19 @@ unsigned tell(int fd) {
 }
 
 void close(int fd) {
-    struct file *f = thread_current()->fd_table[fd];
-    if (f) {
+    // Prevent closing of stdin (0) and stdout (1)
+    if (fd <= 1 || fd >= 128) return; // Avoid invalid or out-of-bounds fds
+
+    struct thread *cur = thread_current();
+    struct file *file = cur->fd_table[fd];
+    if (file != NULL) {
         lock_acquire(&file_system_lock);
-        file_close(f);
-        thread_current()->fd_table[fd] = NULL;
+        file_close(file);
+        cur->fd_table[fd] = NULL;
         lock_release(&file_system_lock);
     }
 }
+
 
 static bool is_valid_user_pointer(const void *ptr) {
     return ptr != NULL && is_user_vaddr(ptr) && pagedir_get_page(thread_current()->pagedir, ptr) != NULL;
@@ -280,12 +290,16 @@ static bool is_valid_user_buffer(const void *buffer, unsigned size) {
 static bool is_valid_user_string(const char *str) {
     if (!is_valid_user_pointer(str)) return false;
     while (*str != '\0') {
-        str++;
         if (!is_valid_user_pointer(str)) return false;
+        str++;
     }
     return true;
 }
 
 static void *get_stack_argument(void *esp, int offset) {
-    return (void *)((char *)esp + offset * 4);
+    void *ptr = (void *)((char *)esp + offset * 4);
+    if (!is_valid_user_pointer(ptr)) {
+        exit(-1);
+    }
+    return ptr;
 }
