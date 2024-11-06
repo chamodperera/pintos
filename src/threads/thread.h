@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -93,6 +94,22 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Used for processes */
+    struct list child_list;             /* List of child threads */
+    struct list_elem child_elem;        /* List element for child threads list */
+    int exit_status;                    /* For parent process that wait for this. This is set when exit system call is made */
+    struct semaphore pre_exit_sema;     /* Semaphore for parent process to wait for child to begin exiting and set its exit_status */
+    struct semaphore post_exit_sema;    /* Semaphore for child to wait for parent to get exit status */
+    struct semaphore file_load_sema;    /* Semaphore for parent to wait for child to load file */
+    bool load_success;                  /* True if child successfully loaded file */
+
+    /* Used for file system */
+    struct file **fd_table;             /* File descriptor table */
+    int next_fd;                        /* Next available file descriptor */
+    struct file *running_file;          /* Running file of process */
+
+    int64_t wakeup_tick;                /* Tick till wake up */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -119,12 +136,18 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 void thread_block (void);
 void thread_unblock (struct thread *);
 
+struct thread *get_thread_by_tid(tid_t tid);
+
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+
+void thread_sleep(int64_t ticks);
+void wakeup_threads(int64_t ticks);
+void thread_wakeup(struct thread* t);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);

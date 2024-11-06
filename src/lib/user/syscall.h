@@ -18,6 +18,7 @@ typedef int mapid_t;
 /* Typical return values from main() and arguments to exit(). */
 #define EXIT_SUCCESS 0          /* Successful execution. */
 #define EXIT_FAILURE 1          /* Unsuccessful execution. */
+#define EXIT_ERROR -1
 
 /* Projects 2 and later. */
 void halt (void) NO_RETURN;
