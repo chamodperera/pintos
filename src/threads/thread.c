@@ -297,6 +297,22 @@ thread_tid (void)
   return thread_current ()->tid;
 }
 
+struct thread *get_thread_by_tid(tid_t tid) {
+    struct list_elem *e;
+    enum intr_level old_level = intr_disable();
+
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, allelem);
+        if (t->tid == tid) {
+            intr_set_level(old_level); // Restore interrupt level
+            return t;
+        }
+    }
+
+    intr_set_level(old_level); // Restore interrupt level if no match is found
+    return NULL;
+}
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void

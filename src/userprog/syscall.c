@@ -143,8 +143,25 @@ void exit(int status) {
 
 tid_t exec(const char *cmd_line) {
     if (!cmd_line || !is_valid_user_string(cmd_line)) return -1;
+
+    // Execute the command
     tid_t pid = process_execute(cmd_line);
-    return (pid == TID_ERROR) ? -1 : pid;
+
+    // If process creation failed, return -1
+    if (pid == TID_ERROR) return -1;
+
+    struct thread *child = get_thread_by_tid(pid); // Implement this to get the child thread
+    if (!child) return -1;
+
+    // Wait until child sets its load status
+    sema_down(&child->file_load_sema); // Semaphore to synchronize loading
+
+    // Check if the child loaded successfully
+    if (!child->load_success) {
+        return -1;
+    }
+
+    return pid;
 }
 
 int wait(tid_t pid) {
